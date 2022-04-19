@@ -25,6 +25,29 @@
     (내용은 자유, 회의내용, 개발경과, 오류해결, 보고서 작성(제출))
     
 
+## 4월 18일
+
+### 현재 카카오 로그인 API 토큰 받아오는 부분에서 넘어가지않는 에러 발생
+
+- 해당 에러 해결 - 매니페스트 파일 수정
+
+```xml
+<activity
+            android:name="com.kakao.sdk.auth.AuthCodeHandlerActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:host="oauth"
+                    android:scheme="kakaod3bc84d744e74ec2f19755c8cc701ad5" />
+            </intent-filter>
+        </activity>
+```
+
+---
+
 ## 4월 13일
 
 ### 현재 카카오 로그인 API 토큰 받아오는 부분에서 넘어가지않는 에러 발생
