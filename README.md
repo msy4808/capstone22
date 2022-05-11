@@ -2,7 +2,7 @@
 
 이름 : 문성운 (팀장: App 기능개발)
 
-졸업작품 소개 사이트 : URL 추가예정
+졸업작품 소개 사이트 : https://msy4808.github.io/capstonePage/
 
 포트폴리오 소개 사이트 : URL 추가예정
 
