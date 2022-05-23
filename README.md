@@ -25,6 +25,227 @@
     (내용은 자유, 회의내용, 개발경과, 오류해결, 보고서 작성(제출))
     
     
+## 5월 18일
+
+### 카메라 프리뷰 적용 및 텍스트추출 API 구현
+
+- Firebase ML Kit을 이용하여 텍스트 추출기능 구현
+
+- CameraFragment.kt 
+
+```kotlin
+class CameraFragment : Fragment() {
+
+    private var imageCapture: ImageCapture? = null
+
+    private lateinit var previewView: PreviewView
+    private lateinit var frameLayoutPreview: FrameLayout
+    private lateinit var imageViewPreview: ImageView
+    private lateinit var cameraBtn: ImageButton
+
+    private lateinit var outputDirectory: File
+    private lateinit var cameraExecutor: ExecutorService
+
+    private lateinit var cameraAnimationListener: Animation.AnimationListener
+
+    private var savedUri: Uri? = null
+    var imageText = ""
+
+    //텍스트 추출관련 - 각 언어별 베타 지원
+    val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    val chineserecognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+    val devanagerrecognizer = TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
+    val japneserecognizer = TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
+    val koreanrecognizer = TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
+    private lateinit var image: InputImage
+
+    object PermissionUtil {
+
+        fun checkPermission(context: Context, permissionList: List<String>): Boolean {
+            for (i: Int in permissionList.indices) {
+                if (ContextCompat.checkSelfPermission(
+                        context,
+                        permissionList[i]
+                    ) == PackageManager.PERMISSION_DENIED
+                ) {
+                    return false
+                }
+            }
+
+            return true
+
+        }
+
+        fun requestPermission(activity: Activity, permissionList: List<String>) {
+            ActivityCompat.requestPermissions(activity, permissionList.toTypedArray(), 10)
+        }
+
+    }
+
+    private fun permissionCheck() {
+
+        var permissionList =
+            listOf(Manifest.permission.CAMERA, Manifest.permission.READ_EXTERNAL_STORAGE)
+
+        if (!PermissionUtil.checkPermission(
+                (activity as MainActivity).applicationContext,
+                permissionList
+            )
+        ) {
+            PermissionUtil.requestPermission((activity as MainActivity), permissionList)
+        } else {
+            openCamera()
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+    }
+
+    override fun onCreateView(
+        inflater: LayoutInflater, container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View? {
+        var view = inflater.inflate(R.layout.fragment_camera, container, false)
+        previewView = view.findViewById(R.id.preview_View)
+        frameLayoutPreview = view.findViewById(R.id.frame_Preview)
+        imageViewPreview = view.findViewById(R.id.image_Preview)
+        cameraBtn = view.findViewById(R.id.camera_Btn)
+        permissionCheck()
+        openCamera()
+        cameraBtn.setOnClickListener {
+            savePhoto()
+        }
+        outputDirectory = getOutputDirectory()
+        cameraExecutor = Executors.newSingleThreadExecutor()
+        return view
+    }
+
+    private fun getOutputDirectory(): File {
+        val mediaDir = (activity as MainActivity).externalMediaDirs.firstOrNull()?.let {
+            File(it, resources.getString(R.string.app_name)).apply { mkdirs() }
+        }
+        val filesDir: File = File("")
+        return if (mediaDir != null && mediaDir.exists())
+            mediaDir else filesDir
+    }
+
+    private fun openCamera() {
+        val cameraProviderFuture =
+            ProcessCameraProvider.getInstance((activity as MainActivity).applicationContext)
+
+        cameraProviderFuture.addListener({
+            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+
+            val preview = Preview.Builder()
+                .build()
+                .also {
+                    it.setSurfaceProvider(previewView.surfaceProvider)
+                }
+
+            imageCapture = ImageCapture.Builder().build()
+
+            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
+            try {
+
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
+
+            } catch (e: Exception) {
+                Log.d("실패", "바인딩 실패 $e")
+            }
+        }, ContextCompat.getMainExecutor((activity as MainActivity).applicationContext))
+
+    }
+
+    private fun savePhoto() {
+        imageCapture = imageCapture ?: return
+
+        val photoFile = File(
+            outputDirectory,
+            SimpleDateFormat("yy-mm-dd", Locale.US).format(System.currentTimeMillis()) + ".png"
+        )
+        val outputOption = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+
+        imageCapture?.takePicture(
+            outputOption,
+            ContextCompat.getMainExecutor((activity as MainActivity).applicationContext),
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                    savedUri = Uri.fromFile(photoFile)
+                    showCaptureImage()
+                    runTextRecognition()
+                }
+
+                override fun onError(exception: ImageCaptureException) {
+                    exception.printStackTrace()
+                    onBackPressed()
+                }
+            })
+    }
+
+
+    private fun runTextRecognition() {
+        image = InputImage.fromFilePath((activity as MainActivity).applicationContext, savedUri!!)
+        koreanrecognizer.process(image)
+            .addOnSuccessListener(
+                OnSuccessListener<Text?> { texts ->
+                    processTextRecognitionResult(texts)
+                })
+            .addOnFailureListener(
+                OnFailureListener { e -> // Task failed with an exception
+                    e.printStackTrace()
+                })
+    }
+
+    private fun processTextRecognitionResult(texts: Text) {
+        val blocks: List<Text.TextBlock> = texts.getTextBlocks()
+        Log.d("텍스트", "${blocks}")
+        if (blocks.size == 0) {
+            Toast.makeText(context,"No text found",Toast.LENGTH_SHORT).show()
+            return
+        }
+        for (i in blocks.indices) {
+            val lines: List<Text.Line> = blocks[i].getLines()
+            for (j in lines.indices) {
+                val elements: List<Text.Element> = lines[j].getElements()
+                for(k in elements.indices) {
+                    imageText += elements.get(k).text
+                    Log.d("텍스트", "${elements.get(k).text}")
+                    Log.d("최종", imageText)
+                }
+            }
+        }
+    }
+
+    private fun hideCaptureImage() {
+        imageViewPreview.setImageURI(null)
+        frameLayoutPreview.visibility = View.GONE
+
+    }
+
+    private fun showCaptureImage(): Boolean {
+        if (frameLayoutPreview.visibility == View.GONE) {
+            frameLayoutPreview.visibility = View.VISIBLE
+            imageViewPreview.setImageURI(savedUri)
+            return false
+        }
+        return true
+    }
+
+    fun onBackPressed() {
+        if (showCaptureImage()) {
+            hideCaptureImage()
+        } else {
+            onBackPressed()
+
+        }
+    }
+}
+```
+
+---
 ## 5월 4일
 
 ### 메인 페이지 디자인 적용 및 앱 구조변경
